@@ -34,7 +34,7 @@ function AudioCtrl($scope, $http, $interval) {
 	};
 	function sendLevel(pct) {
 		$scope.level.busy = true;
-		$http.post(base + '/level', { level_pct: pct }, { timeout: 4000 }).then(function (r) {
+		$http.post(base + '/level', { level_pct: pct }, { timeout: 15000 }).then(function (r) {
 			$scope.level.ok = true;
 			$scope.level.msg = r.data.saved ? 'saved' : 'set (not saved)';
 		}, function (e) {
@@ -70,12 +70,14 @@ function AudioCtrl($scope, $http, $interval) {
 
 	function sendEq() {
 		eqBusy = true;
+		$scope.eqOk = true;
+		$scope.eqMsg = 'applying...';
 		var body = {
 			bands_db: $scope.bands.map(function (b) { return parseFloat(b.db); }),
 			loudness: !!$scope.eqLoudness,
 			preset: $scope.eqPreset
 		};
-		$http.post(base + '/eq', body, { timeout: 6000 }).then(function (r) {
+		$http.post(base + '/eq', body, { timeout: 15000 }).then(function (r) {
 			$scope.eq = angular.extend({}, $scope.eq, r.data.eq);
 			$scope.eqOk = true;
 			$scope.eqMsg = r.data.saved ? 'saved' : 'set (not saved)';

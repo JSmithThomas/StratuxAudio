@@ -275,7 +275,7 @@ DBUS = ["busctl", "--system"]
 SP = ["org.gnome.ShairportSync", "/org/gnome/ShairportSync", "org.gnome.ShairportSync"]
 
 eq_state = {"bands_db": [0] * len(EQ_BANDS), "loudness": False, "preset": "Flat",
-            "gain_db": 0.0, "active": False, "error": ""}
+            "gain_db": 0.0, "active": False, "error": "", "curve": []}
 
 
 def biquad(kind, f0, gain_db, q=1.0):
@@ -377,7 +377,7 @@ def apply_eq(bands_db, loudness):
         sp_set("Convolution", "b", "false" if flat else "true")
         sp_set("Loudness", "b", "true" if loudness else "false")
         eq_state.update(bands_db=list(bands_db), loudness=bool(loudness), gain_db=gain,
-                        active=not flat, error="")
+                        active=not flat, error="", curve=eq_curve(bands_db, 48))
 
 
 def shairport_pid():
@@ -536,7 +536,7 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 saved = False
             print(f"{ts()} equalizer set to {bands} loudness={loud} preset={preset!r} from {who}", flush=True)
-            return self._json(200, {"eq": dict(eq_state, curve=eq_curve(bands, 48)), "saved": saved})
+            return self._json(200, {"eq": eq_state, "saved": saved})
 
         if path == "/mono":
             mono = bool(body.get("mono"))
@@ -566,7 +566,6 @@ class Handler(BaseHTTPRequestHandler):
             eq["bands"] = [{"hz": f, "db": g} for (f, _), g in zip(EQ_BANDS, eq["bands_db"])]
             eq["presets"] = EQ_PRESETS
             eq["max_db"] = EQ_MAX_DB
-            eq["curve"] = eq_curve(eq["bands_db"], 48)
             audio = {"eq": eq, "mono": conf_mono()}
             body = json.dumps({"time": ts(), "now_playing": np, "health": health(),
                                "audio": audio}).encode()

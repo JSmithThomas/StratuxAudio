@@ -7,7 +7,8 @@ general =
   name = "@NAME@";            // what the iPhone shows in its AirPlay list
   output_backend = "alsa";
   mdns_backend = "avahi";
-  interpolation = "soxr";     // best-sounding timing correction; about 3 % CPU on a Pi 3
+  interpolation = "basic";    // light timing correction. "soxr" measured ~45 % of a core on a
+                              // Stratux Pi 3 (CPU held at 900 MHz); basic + EQ + mono ~14 %.
   playback_mode = "stereo";   // "mono" mixes both channels; set from the Audio page
   volume_range_db = 60;
 };

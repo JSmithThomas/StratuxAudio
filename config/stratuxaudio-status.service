@@ -22,7 +22,9 @@ RestartSec=5
 # Same rule as shairport: never compete with the ADS-B work.
 Nice=15
 CPUWeight=10
-CPUQuota=15%
+# A cap, not a share: low priority (Nice/CPUWeight) already keeps it behind the ADS-B
+# work; the cap just stops a runaway. Too low a cap made EQ changes take seconds.
+CPUQuota=80%
 MemoryMax=48M
 
 [Install]
