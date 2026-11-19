@@ -10,7 +10,7 @@ of a USB sound dongle on the Pi, into the intercom's music input.
 one CPU core, so the ADS-B decoders always win. Check this on the ground before flying it
 (see *Testing*).
 
-Status: **v1.2.4, tested on a Stratux** (Raspberry Pi 3B+, Stratux v2.0 = v2.0-pre4,
+Status: **v1.2.4, tested on a Stratux** (Raspberry Pi 3 Model B, Stratux v2.0 = v2.0-pre4,
 Vention USB sound adapter with a C-Media chip, iPhone) on 2026-11-18/19, both ways: over
 SSH, and by uploading the one file through the web page onto a freshly flashed card.
 Reports from other setups (Pi 4, Stratux pre5/pre6) are welcome.
@@ -50,7 +50,7 @@ same as the Stratux settings page.
 
 ## What you need
 
-- A Stratux on a Raspberry Pi 3B+ (a 4 also works; a 5 needs the USB dongle anyway).
+- A Stratux on a Raspberry Pi 3 (Model B tested; B+ and 4 should work the same).
 - A **USB sound adapter** (any class-compliant USB audio device; no driver needed). The
   Pi's own headphone jack doesn't work under the Stratux image, so this isn't optional.
   **Sound quality depends mostly on this part.** Tested:

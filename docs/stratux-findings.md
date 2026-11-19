@@ -13,7 +13,7 @@ The Europe edition (`b3nn0/stratux`) now redirects to this repository: one main 
 - **CPU slowed on purpose:** `config.txt` sets `arm_freq=900`, `core_freq=450`,
   `sdram_freq=450` to reduce radio interference with the ADS-B receivers (Stratux issue #573).
   The audio service has to fit in what's left after dump1090 (1090 MHz) and dump978 (978 MHz UAT).
-- **Audio is on:** `dtparam=audio=on`, so the Pi 3/4 headphone jack works.
+- **Audio is on:** `dtparam=audio=on`, so the Pi 3/4 headphone jack is enabled (but it doesn't play on the bench unit; see below).
   The Pi 5 has no jack: it needs a USB sound dongle or an add-on DAC board.
 - **No internet in flight;** system clock set from GPS (timesyncd disabled).
 
@@ -70,7 +70,7 @@ The Europe edition (`b3nn0/stratux`) now redirects to this repository: one main 
    `/boot/firmware/stratuxaudio.json`: the settings partition Stratux itself uses for
    `stratux.conf`, which stays writable with the overlay on.
 
-## Found on the bench (2026-11-18, Pi 3B+, Stratux v2.0 line)
+## Found on the bench (2026-11-18, Pi 3 Model B, Stratux v2.0 line)
 
 - **The Pi's own headphone jack doesn't play** under the Stratux image: `speaker-test` on
   `Headphones` fails with "Input/output error" and the kernel logs a VCHI error from
