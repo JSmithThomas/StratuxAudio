@@ -1,0 +1,37 @@
+// StratuxAudio: AirPlay receiver settings for a Stratux (Raspberry Pi 3B+, USB sound dongle).
+// Written by install.sh; @OUTPUT_DEVICE@ and @NAME@ are filled in at install time.
+// Reference: shairport-sync's own sample config (/usr/share/doc/shairport-sync/examples).
+
+general =
+{
+  name = "@NAME@";            // what the iPhone shows in its AirPlay list
+  output_backend = "alsa";
+  mdns_backend = "avahi";
+  interpolation = "basic";    // lightest timing correction: the Stratux CPU runs at 900 MHz
+  volume_range_db = 60;
+};
+
+sessioncontrol =
+{
+  allow_session_interruption = "yes"; // a second phone can take over
+  session_timeout = 20;               // free the speaker 20 s after a phone drops off
+};
+
+// Song title, artist, album, cover art and volume go to this pipe; the
+// stratuxaudio-status service reads it for the "Audio" page in the Stratux web UI.
+metadata =
+{
+  enabled = "yes";
+  include_cover_art = "yes";
+  pipe_name = "/tmp/shairport-sync-metadata";
+  pipe_timeout = 5000;
+};
+
+alsa =
+{
+  output_device = "@OUTPUT_DEVICE@";
+  // Larger buffer than the default (0.15 s): rides out short CPU spikes from the
+  // ADS-B decoders without a dropout. Adds a fraction of a second of delay, which
+  // doesn't matter for music.
+  audio_backend_buffer_desired_length_in_seconds = 0.35;
+};
