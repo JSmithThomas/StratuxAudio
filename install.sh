@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-VERSION="1.2.0"
+VERSION="1.2.1"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG=/var/log/stratuxaudio-install.log
 
@@ -125,7 +125,20 @@ if [ -z "$DEVICE" ]; then
       [ -n "$saved" ] && LEVEL="$saved"
     fi
     if [ -d /boot/firmware ]; then
-      printf '{"level_pct": %d, "level_saved_at": "%s"}\n' "$LEVEL" "$(date -Is)" > "$SAVED" || true
+      # Update only the level; keep the equalizer, mono and anything else saved there.
+      python3 - "$SAVED" "$LEVEL" "$(date -Is)" <<'PY' >>"$LOG" 2>&1 || log "WARNING: couldn't save the level"
+import json, os, sys
+path, level, when = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+try:
+    with open(path) as f:
+        d = json.load(f)
+except (OSError, ValueError):
+    d = {}
+d.update(level_pct=level, level_saved_at=when)
+with open(path + ".tmp", "w") as f:
+    json.dump(d, f)
+os.replace(path + ".tmp", path)
+PY
     fi
     if command -v amixer >/dev/null; then
       ctl="$(amixer -c "$card" scontrols 2>/dev/null | head -1 | sed -n "s/^Simple mixer control '\(.*\)',.*/\1/p")"
