@@ -100,4 +100,59 @@
 			</div>
 		</div>
 	</div>
+
+	<div class="panel panel-default" ng-show="eq.bands">
+		<div class="panel-heading">
+			<span class="panel_label">Sound</span>
+			<span ng-show="eq.active" class="label label-info">EQ on</span>
+			<span ng-show="mono.on" class="label label-info">Mono</span>
+			<span ng-show="eqMsg" ng-class="eqOk ? 'label label-success' : 'label label-danger'">{{eqMsg}}</span>
+		</div>
+		<div class="panel-body" style="padding-top:8px; padding-bottom:8px">
+			<!-- Mono + presets -->
+			<div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:6px">
+				<div class="btn-group" title="Mono mixes both channels into one (most audio panels take music in mono). Switching restarts AirPlay for about 2 seconds.">
+					<button class="btn btn-xs" ng-class="!mono.on ? 'btn-primary' : 'btn-default'" ng-disabled="mono.busy" ng-click="setMono(false)">Stereo</button>
+					<button class="btn btn-xs" ng-class="mono.on ? 'btn-primary' : 'btn-default'" ng-disabled="mono.busy" ng-click="setMono(true)">Mono</button>
+				</div>
+				<span class="text-muted" style="margin:0 4px">|</span>
+				<button ng-repeat="(name, bands) in eq.presets" class="btn btn-xs"
+					ng-class="eqPreset == name ? 'btn-primary' : 'btn-default'" ng-click="applyPreset(name)">{{name}}</button>
+				<label style="font-weight:normal; margin:0 0 0 6px" title="Adds bass and treble as the phone volume goes down">
+					<input type="checkbox" ng-model="eqLoudness" ng-change="bandMoved()" /> Loudness</label>
+			</div>
+
+			<!-- Curve -->
+			<div style="position:relative; padding-left:26px">
+				<div class="text-muted" style="position:absolute; left:0; top:0; height:60px; width:22px; text-align:right; font-size:10px">
+					<span style="position:absolute; right:0; top:-3px">+12</span>
+					<span style="position:absolute; right:0; top:23px">0</span>
+					<span style="position:absolute; right:0; bottom:-4px">-12</span>
+				</div>
+				<svg viewBox="0 0 300 60" preserveAspectRatio="none" style="width:100%; height:60px; background:#f7f7f7; border-radius:3px; display:block">
+					<line x1="0" x2="300" ng-attr-y1="{{fy(0)}}" ng-attr-y2="{{fy(0)}}" stroke="#aaa" stroke-dasharray="4,4" vector-effect="non-scaling-stroke" />
+					<line ng-repeat="t in [100,1000,10000]" ng-attr-x1="{{fx(t)}}" ng-attr-x2="{{fx(t)}}" y1="0" y2="60" stroke="#dcdcdc" vector-effect="non-scaling-stroke" />
+					<polyline ng-attr-points="{{curvePoints()}}" fill="none" stroke="#337ab7" stroke-width="2.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+				</svg>
+				<div class="text-muted" style="position:relative; height:14px; font-size:10px">
+					<span ng-repeat="t in [[20,'20 Hz'],[100,'100'],[1000,'1k'],[10000,'10k'],[20000,'20k']]"
+						ng-attr-style="position:absolute; top:0; left:{{100 * fx(t[0]) / 300}}%; transform:translateX({{t[0] == 20 ? '0' : (t[0] == 20000 ? '-100%' : '-50%')}})">{{t[1]}}</span>
+				</div>
+			</div>
+
+			<!-- Bands: two columns on wider screens -->
+			<div class="row" style="margin-top:4px">
+				<div class="col-xs-12 col-sm-6" ng-repeat="b in bands" style="display:flex; align-items:center; height:26px">
+					<span class="small" style="width:52px; flex:none">{{hzLabel(b.hz)}}</span>
+					<input type="range" min="-12" max="12" step="0.5" ng-model="b.db" ng-change="bandMoved()" style="flex:1; margin:0 6px" />
+					<tt class="small" style="width:34px; flex:none; text-align:right">{{b.db > 0 ? '+' : ''}}{{b.db}}</tt>
+				</div>
+			</div>
+
+			<div class="text-muted small" style="display:flex; justify-content:space-between; align-items:center; margin-top:4px">
+				<span><span ng-show="eq.gain_db < 0">Level lowered {{-eq.gain_db}} dB so boosts can't distort. </span>Changes apply live and are saved.</span>
+				<button class="btn btn-xs btn-default" ng-click="applyPreset('Flat')">Reset</button>
+			</div>
+		</div>
+	</div>
 </div>

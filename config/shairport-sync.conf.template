@@ -7,7 +7,8 @@ general =
   name = "@NAME@";            // what the iPhone shows in its AirPlay list
   output_backend = "alsa";
   mdns_backend = "avahi";
-  interpolation = "basic";    // lightest timing correction: the Stratux CPU runs at 900 MHz
+  interpolation = "soxr";     // best-sounding timing correction; about 3 % CPU on a Pi 3
+  playback_mode = "stereo";   // "mono" mixes both channels; set from the Audio page
   volume_range_db = 60;
 };
 
@@ -25,6 +26,15 @@ metadata =
   include_cover_art = "yes";
   pipe_name = "/tmp/shairport-sync-metadata";
   pipe_timeout = 5000;
+};
+
+// Equalizer: the Audio page builds a filter and switches it in live over D-Bus.
+dsp =
+{
+  convolution = "no";
+  convolution_max_length = 8192;
+  loudness = "no";
+  loudness_reference_volume_db = -20.0;
 };
 
 alsa =

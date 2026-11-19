@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-VERSION="1.1.1"
+VERSION="1.2.0"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG=/var/log/stratuxaudio-install.log
 
@@ -131,6 +131,8 @@ if [ -z "$DEVICE" ]; then
       ctl="$(amixer -c "$card" scontrols 2>/dev/null | head -1 | sed -n "s/^Simple mixer control '\(.*\)',.*/\1/p")"
       if [ -n "$ctl" ]; then
         amixer -c "$card" sset "$ctl" "${LEVEL}%" unmute >>"$LOG" 2>&1 || true
+        # C-Media dongles have an "Auto Gain Control" switch meant for the mic; keep it off.
+        amixer -c "$card" sset "Auto Gain Control" off >>"$LOG" 2>&1 || true
         alsactl store >>"$LOG" 2>&1 || true
         log "dongle '$ctl' set to ${LEVEL}%"
       fi

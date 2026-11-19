@@ -9,19 +9,24 @@ page in the Stratux web UI.
   GET /status.json   everything, as JSON
   GET /cover         current cover art (image), 404 if none
   POST /level        {"level_pct": 0-100}: set the dongle's output level
+  POST /eq           {"bands_db": [7 x -12..12], "loudness": bool, "preset": str}
+  POST /mono         {"mono": bool}: mix down to mono (restarts the AirPlay receiver)
 
-The level is saved to /boot/firmware/stratuxaudio.json (the Stratux settings
+Settings are saved to /boot/firmware/stratuxaudio.json (the Stratux settings
 partition, which stays writable with the overlay on) and applied again at start-up.
 
 Standard library only. Port 8090.
 """
 
 import base64
+import cmath
 import glob
 import json
+import math
 import os
 import re
 import stat
+import struct
 import subprocess
 import threading
 import time
@@ -234,8 +239,12 @@ def load_saved():
 
 
 def save_level(pct):
+    save_key(level_pct=pct, level_saved_at=ts())
+
+
+def save_key(**kv):
     d = load_saved()
-    d.update(level_pct=pct, level_saved_at=ts())
+    d.update(kv)
     tmp = SAVED + ".tmp"
     with open(tmp, "w") as f:
         json.dump(d, f)
@@ -244,21 +253,215 @@ def save_level(pct):
     os.replace(tmp, SAVED)
 
 
-def apply_saved_level():
-    """At start-up, and whenever the dongle reappears: put the saved level back."""
-    last = None
+# --- Equalizer ---------------------------------------------------------------------
+# Seven bands: a low shelf, five bells, a high shelf. The sliders become standard
+# "Audio EQ Cookbook" filters (R. Bristow-Johnson); their combined impulse response is
+# written as a short WAV file and handed to shairport-sync's convolution stage over
+# D-Bus, which switches it live, without a restart or a dropout.
+
+EQ_BANDS = [(60, "lowshelf"), (150, "bell"), (400, "bell"), (1000, "bell"),
+            (2500, "bell"), (6000, "bell"), (15000, "highshelf")]
+EQ_MAX_DB = 12
+EQ_PRESETS = {
+    "Flat":       [0, 0, 0, 0, 0, 0, 0],
+    "Rich":       [5, 3, 0, -1, 1, 2, 3],     # the "smile" most headphones apply over Bluetooth
+    "Bass boost": [7, 4, 1, 0, 0, 0, 0],
+    "Cockpit":    [-4, -1, 0, 2, 4, 3, 1],    # less engine rumble, clearer voices and detail
+    "Vocal":      [-2, -1, 1, 3, 3, 1, 0],
+}
+IR_LEN = 4096          # 93 ms at 44.1 kHz: long enough for the 60 Hz shelf to settle
+FS = 44100.0
+DBUS = ["busctl", "--system"]
+SP = ["org.gnome.ShairportSync", "/org/gnome/ShairportSync", "org.gnome.ShairportSync"]
+
+eq_state = {"bands_db": [0] * len(EQ_BANDS), "loudness": False, "preset": "Flat",
+            "gain_db": 0.0, "active": False, "error": ""}
+
+
+def biquad(kind, f0, gain_db, q=1.0):
+    """Normalized (b0, b1, b2, a1, a2) for one band."""
+    a = 10 ** (gain_db / 40)
+    w0 = 2 * math.pi * f0 / FS
+    cw, sw = math.cos(w0), math.sin(w0)
+    if kind == "bell":
+        alpha = sw / (2 * q)
+        b = (1 + alpha * a, -2 * cw, 1 - alpha * a)
+        aa = (1 + alpha / a, -2 * cw, 1 - alpha / a)
+    else:
+        alpha = sw / 2 * math.sqrt(2)          # shelf slope S = 1
+        sa = 2 * math.sqrt(a) * alpha
+        if kind == "lowshelf":
+            b = (a * ((a + 1) - (a - 1) * cw + sa), 2 * a * ((a - 1) - (a + 1) * cw),
+                 a * ((a + 1) - (a - 1) * cw - sa))
+            aa = ((a + 1) + (a - 1) * cw + sa, -2 * ((a - 1) + (a + 1) * cw),
+                  (a + 1) + (a - 1) * cw - sa)
+        else:
+            b = (a * ((a + 1) + (a - 1) * cw + sa), -2 * a * ((a - 1) + (a + 1) * cw),
+                 a * ((a + 1) + (a - 1) * cw - sa))
+            aa = ((a + 1) - (a - 1) * cw + sa, 2 * ((a - 1) - (a + 1) * cw),
+                  (a + 1) - (a - 1) * cw - sa)
+    return (b[0] / aa[0], b[1] / aa[0], b[2] / aa[0], aa[1] / aa[0], aa[2] / aa[0])
+
+
+def eq_filters(bands_db):
+    return [biquad(k, f, g) for (f, k), g in zip(EQ_BANDS, bands_db) if g]
+
+
+def eq_curve(bands_db, points=60):
+    """[(Hz, dB)] of the combined curve, 20 Hz - 20 kHz, log spaced."""
+    fl = eq_filters(bands_db)
+    out = []
+    for i in range(points):
+        f = 20 * (1000 ** (i / (points - 1)))
+        z = cmath.exp(-1j * 2 * math.pi * f / FS)
+        h = 1
+        for b0, b1, b2, a1, a2 in fl:
+            h *= (b0 + b1 * z + b2 * z * z) / (1 + a1 * z + a2 * z * z)
+        out.append((round(f), round(20 * math.log10(max(abs(h), 1e-9)), 2)))
+    return out
+
+
+def eq_impulse(bands_db):
+    x = [1.0] + [0.0] * (IR_LEN - 1)
+    for b0, b1, b2, a1, a2 in eq_filters(bands_db):
+        y, x1, x2, y1, y2 = [], 0.0, 0.0, 0.0, 0.0
+        for s in x:
+            o = b0 * s + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+            x2, x1, y2, y1 = x1, s, y1, o
+            y.append(o)
+        x = y
+    fade = IR_LEN // 4                        # smooth the truncated tail
+    for i in range(fade):
+        x[IR_LEN - fade + i] *= 0.5 * (1 + math.cos(math.pi * i / fade))
+    return x
+
+
+def write_wav_float(path, mono):
+    """32-bit float stereo WAV (both channels the same filter)."""
+    data = b"".join(struct.pack("<ff", s, s) for s in mono)
+    fmt = struct.pack("<HHIIHH", 3, 2, int(FS), int(FS) * 8, 8, 32)
+    body = (b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt
+            + b"fact" + struct.pack("<II", 4, len(mono))
+            + b"data" + struct.pack("<I", len(data)) + data)
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(b"RIFF" + struct.pack("<I", len(body)) + body)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+
+
+def sp_set(prop, sig, value):
+    r = subprocess.run(DBUS + ["set-property", "--"] + SP + [prop, sig, str(value)],
+                       capture_output=True, text=True, timeout=5)
+    if r.returncode:
+        raise RuntimeError(f"{prop}: {r.stderr.strip() or r.stdout.strip()}")
+
+
+_ir_flip = [0]
+eq_lock = threading.Lock()
+
+
+def apply_eq(bands_db, loudness):
+    """Build the filter and switch shairport-sync to it, live."""
+    with eq_lock:
+        flat = not any(bands_db)
+        gain = 0.0
+        if not flat:
+            peak = max(db for _, db in eq_curve(bands_db, 240))
+            gain = -max(0.0, round(peak + 0.5, 1))   # headroom: never clip
+            _ir_flip[0] ^= 1                    # new file name, so shairport reloads it
+            path = f"/tmp/stratuxaudio-eq-{_ir_flip[0]}.wav"
+            write_wav_float(path, eq_impulse(bands_db))
+            sp_set("ConvolutionImpulseResponseFile", "s", path)
+            sp_set("ConvolutionGain", "d", gain)
+        sp_set("Convolution", "b", "false" if flat else "true")
+        sp_set("Loudness", "b", "true" if loudness else "false")
+        eq_state.update(bands_db=list(bands_db), loudness=bool(loudness), gain_db=gain,
+                        active=not flat, error="")
+
+
+def shairport_pid():
+    return run(["systemctl", "show", "-p", "MainPID", "--value", "shairport-sync"])
+
+
+def keep_settings_applied():
+    """At start-up, when the dongle reappears and when shairport restarts:
+    put the saved level and equalizer back."""
+    last_level, last_pid = None, None
     while True:
-        pct = load_saved().get("level_pct")
+        saved = load_saved()
+        pct = saved.get("level_pct")
         cid, ctl = dongle_control()
         key = (cid, pct)
-        if pct is not None and ctl and key != last:
-            if set_level(int(pct)):
-                print(f"{ts()} output level {pct}% applied to {cid}", flush=True)
-                last = key
+        if ctl and key != last_level:
+            # The C-Media "Auto Gain Control" switch is meant for the mic; keep it off.
+            run(["amixer", "-c", cid, "sset", "Auto Gain Control", "off"])
+            if pct is None or set_level(int(pct)):
+                if pct is not None:
+                    print(f"{ts()} output level {pct}% applied to {cid}", flush=True)
+                last_level = key
         elif not ctl:
-            last = None   # dongle unplugged: apply again when it's back
+            last_level = None   # dongle unplugged: apply again when it's back
+        pid = shairport_pid()
+        if pid and pid != "0" and pid != last_pid:
+            eq = saved.get("eq") or {}
+            bands = eq.get("bands_db") or [0] * len(EQ_BANDS)
+            try:
+                time.sleep(2)               # let shairport finish starting
+                apply_eq(bands, eq.get("loudness", False))
+                eq_state["preset"] = eq.get("preset", "")
+                print(f"{ts()} equalizer applied: {bands} loudness={eq.get('loudness', False)}", flush=True)
+                last_pid = pid
+            except Exception as e:
+                eq_state["error"] = str(e)
+                print(f"{ts()} equalizer not applied yet: {e}", flush=True)
         time.sleep(10)
 
+
+# --- Mono ----------------------------------------------------------------------------
+# shairport-sync's playback_mode can't change live, so a switch rewrites that one line
+# of its config and restarts it (about a 2 s gap). With the overlay on, /etc goes back
+# to the installed file at each boot; the saved choice is put back then.
+
+def conf_mono():
+    try:
+        m = re.search(r'^\s*playback_mode\s*=\s*"([^"]*)"', open(CONF).read(), re.M)
+    except OSError:
+        return None
+    return (m.group(1) == "mono") if m else False
+
+
+def set_mono(mono):
+    text = open(CONF).read()
+    line = f'  playback_mode = "{"mono" if mono else "stereo"}";   // set from the Audio page'
+    lines = text.split("\n")
+    for i, l in enumerate(lines):
+        if re.match(r"\s*playback_mode\s*=", l):
+            lines[i] = line
+            break
+    else:                            # older config without the line: add it to general
+        i = next(i for i, l in enumerate(lines) if l.strip().startswith("general"))
+        j = next(j for j in range(i, len(lines)) if "{" in lines[j])
+        lines.insert(j + 1, line)
+    text = "\n".join(lines)
+    with open(CONF, "r+") as f:      # in place: the service may write the file, not /etc
+        f.seek(0)
+        f.write(text)
+        f.truncate()
+    r = subprocess.run(["systemctl", "restart", "shairport-sync"], capture_output=True, text=True, timeout=20)
+    if r.returncode:
+        raise RuntimeError(r.stderr.strip() or "restart failed")
+    _health["at"] = 0
+
+
+def keep_mono_applied():
+    want = load_saved().get("mono")
+    if want is not None and conf_mono() is not None and conf_mono() != bool(want):
+        try:
+            set_mono(bool(want))
+            print(f"{ts()} mono={bool(want)} applied", flush=True)
+        except Exception as e:
+            print(f"{ts()} mono not applied: {e}", flush=True)
 
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype):
@@ -269,35 +472,84 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_OPTIONS(self):   # CORS preflight for POST /level
+    def do_OPTIONS(self):   # CORS preflight for the POSTs
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
+    def _body(self):
+        n = int(self.headers.get("Content-Length", "0"))
+        if n > 4000:
+            raise ValueError("too long")
+        return json.loads(self.rfile.read(n) or b"{}")
+
+    def _json(self, code, obj):
+        self._send(code, json.dumps(obj).encode(), "application/json")
+
     def do_POST(self):
-        if self.path.split("?")[0] != "/level":
-            return self._send(404, b"not found", "text/plain")
+        path = self.path.split("?")[0]
+        who = self.client_address[0]
         try:
-            n = int(self.headers.get("Content-Length", "0"))
-            if n > 1000:
-                raise ValueError("too long")
-            pct = int(json.loads(self.rfile.read(n) or b"{}")["level_pct"])
-            if not 0 <= pct <= 100:
-                raise ValueError("out of range")
-        except (ValueError, KeyError, TypeError):
-            return self._send(400, b'{"error": "send {\\"level_pct\\": 0-100}"}', "application/json")
-        if not set_level(pct):
-            return self._send(503, b'{"error": "no USB sound dongle"}', "application/json")
-        saved = True
-        try:
-            save_level(pct)
-        except OSError as e:
-            saved = False
-            print(f"{ts()} couldn't save level: {e}", flush=True)
-        print(f"{ts()} output level set to {pct}% from {self.client_address[0]} (saved={saved})", flush=True)
-        self._send(200, json.dumps({"level_pct": pct, "saved": saved}).encode(), "application/json")
+            body = self._body()
+        except (ValueError, TypeError):
+            return self._json(400, {"error": "send JSON"})
+
+        if path == "/level":
+            try:
+                pct = int(body["level_pct"])
+                if not 0 <= pct <= 100:
+                    raise ValueError
+            except (ValueError, KeyError, TypeError):
+                return self._json(400, {"error": "send {\"level_pct\": 0-100}"})
+            if not set_level(pct):
+                return self._json(503, {"error": "no USB sound dongle"})
+            saved = True
+            try:
+                save_level(pct)
+            except OSError as e:
+                saved = False
+                print(f"{ts()} couldn't save level: {e}", flush=True)
+            print(f"{ts()} output level set to {pct}% from {who} (saved={saved})", flush=True)
+            return self._json(200, {"level_pct": pct, "saved": saved})
+
+        if path == "/eq":
+            try:
+                bands = [max(-EQ_MAX_DB, min(EQ_MAX_DB, round(float(x) * 2) / 2)) for x in body["bands_db"]]
+                if len(bands) != len(EQ_BANDS):
+                    raise ValueError
+                loud = bool(body.get("loudness", False))
+                preset = str(body.get("preset", ""))[:40]
+            except (ValueError, KeyError, TypeError):
+                return self._json(400, {"error": f"send {{\"bands_db\": [{len(EQ_BANDS)} numbers]}}"})
+            try:
+                apply_eq(bands, loud)
+            except Exception as e:
+                eq_state["error"] = str(e)
+                print(f"{ts()} equalizer failed: {e}", flush=True)
+                return self._json(503, {"error": f"couldn't apply: {e}"})
+            eq_state["preset"] = preset
+            saved = True
+            try:
+                save_key(eq={"bands_db": bands, "loudness": loud, "preset": preset}, eq_saved_at=ts())
+            except OSError:
+                saved = False
+            print(f"{ts()} equalizer set to {bands} loudness={loud} preset={preset!r} from {who}", flush=True)
+            return self._json(200, {"eq": dict(eq_state, curve=eq_curve(bands, 48)), "saved": saved})
+
+        if path == "/mono":
+            mono = bool(body.get("mono"))
+            try:
+                set_mono(mono)
+                save_key(mono=mono, mono_saved_at=ts())
+            except Exception as e:
+                print(f"{ts()} mono failed: {e}", flush=True)
+                return self._json(503, {"error": f"couldn't switch: {e}"})
+            print(f"{ts()} mono={mono} from {who}", flush=True)
+            return self._json(200, {"mono": mono})
+
+        return self._send(404, b"not found", "text/plain")
 
     def do_GET(self):
         path = self.path.split("?")[0]
@@ -310,7 +562,14 @@ class Handler(BaseHTTPRequestHandler):
                     np["position_s"] = min(np["position_s"], np["duration_s"])
             np.pop("position_at")
             np["has_cover"] = cover["data"] is not None
-            body = json.dumps({"time": ts(), "now_playing": np, "health": health()}).encode()
+            eq = dict(eq_state)
+            eq["bands"] = [{"hz": f, "db": g} for (f, _), g in zip(EQ_BANDS, eq["bands_db"])]
+            eq["presets"] = EQ_PRESETS
+            eq["max_db"] = EQ_MAX_DB
+            eq["curve"] = eq_curve(eq["bands_db"], 48)
+            audio = {"eq": eq, "mono": conf_mono()}
+            body = json.dumps({"time": ts(), "now_playing": np, "health": health(),
+                               "audio": audio}).encode()
             self._send(200, body, "application/json")
         elif path == "/cover" and cover["data"]:
             self._send(200, cover["data"], cover["type"])
@@ -323,6 +582,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     threading.Thread(target=reader, daemon=True).start()
-    threading.Thread(target=apply_saved_level, daemon=True).start()
+    keep_mono_applied()
+    threading.Thread(target=keep_settings_applied, daemon=True).start()
     print(f"{ts()} stratuxaudio-status listening on :{PORT}", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
