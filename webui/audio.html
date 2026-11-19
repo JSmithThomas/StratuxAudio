@@ -61,16 +61,22 @@
 				</div>
 				<div class="separator"></div>
 				<div class="row">
-					<strong class="col-xs-5">USB sound dongle:</strong>
+					<strong class="col-xs-5">Sound output:</strong>
+					<span class="col-xs-7">
+						<select ng-model="out.choice" ng-change="setOutput()" ng-disabled="out.busy" style="max-width:100%"
+							ng-options="c.id as cardLabel(c) for c in h.cards"></select>
+						<span ng-show="out.busy" class="text-muted">&nbsp;switching&hellip;</span>
+						<span ng-show="out.msg && !out.busy" ng-class="out.ok ? 'text-success' : 'text-danger'">&nbsp;{{out.msg}}</span>
+					</span>
+				</div>
+				<div class="row">
+					<strong class="col-xs-5">Output status:</strong>
 					<span class="col-xs-7">
 						<span ng-show="h.dongle" class="label label-success">Connected</span>
 						<span ng-hide="h.dongle" class="label label-danger">Not found</span>
 						<span ng-show="h.dongle.in_use" class="label label-info">Sending audio</span>
+						<span class="text-muted small" ng-show="h.dongle.usbid">&nbsp;USB {{h.dongle.usbid}}</span>
 					</span>
-				</div>
-				<div class="row" ng-show="h.dongle">
-					<strong class="col-xs-5">Device:</strong>
-					<span class="col-xs-7">{{h.dongle.name}} <span class="text-muted">({{h.dongle.usbid}})</span></span>
 				</div>
 				<div class="row" ng-show="h.dongle">
 					<strong class="col-xs-5">Output level:</strong>
@@ -88,10 +94,9 @@
 							volume is as loud as you want without distortion; then use the phone for everyday volume.</div>
 					</div>
 				</div>
-				<div class="row">
-					<strong class="col-xs-5">Output setting:</strong>
-					<span class="col-xs-7"><tt>{{h.output_device}}</tt>
-						<span ng-show="h.dongle && !h.dongle.selected" class="label label-danger">not the dongle</span></span>
+				<div class="row" ng-hide="h.dongle">
+					<span class="col-xs-12 text-danger small">The chosen sound output (<tt>{{h.output_card}}</tt>) isn't plugged in.
+						Plug it in, or pick another one above. If any USB sound adapter is present, the Stratux switches to it by itself.</span>
 				</div>
 				<div class="row">
 					<strong class="col-xs-5">StratuxAudio version:</strong>

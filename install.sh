@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-VERSION="1.2.2"
+VERSION="1.2.3"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG=/var/log/stratuxaudio-install.log
 
@@ -112,9 +112,19 @@ log "$(shairport-sync -V 2>&1 | head -1) (this string shows AirPlay2 only if bui
 # --- 3. Find the USB sound dongle ------------------------------------------------
 if [ -z "$DEVICE" ]; then
   card=""
-  for c in /proc/asound/card[0-9]*; do
-    [ -e "$c/usbid" ] && { card="$(cat "$c/id")"; break; }
-  done
+  # The sound output chosen on the Audio page wins, if that adapter is plugged in.
+  want_usbid="$(python3 -c 'import json,sys; print((json.load(open(sys.argv[1])).get("output") or {}).get("usbid",""))' "$SAVED" 2>/dev/null || true)"
+  if [ -n "$want_usbid" ]; then
+    for c in /proc/asound/card[0-9]*; do
+      if [ -e "$c/usbid" ] && [ "$(cat "$c/usbid")" = "$want_usbid" ]; then card="$(cat "$c/id")"; break; fi
+    done
+    [ -n "$card" ] && log "using the sound output chosen on the Audio page: $card ($want_usbid)"
+  fi
+  if [ -z "$card" ]; then
+    for c in /proc/asound/card[0-9]*; do
+      if [ -e "$c/usbid" ]; then card="$(cat "$c/id")"; break; fi
+    done
+  fi
   if [ -n "$card" ]; then
     DEVICE="plughw:CARD=${card},DEV=0"
     log "USB sound dongle found: $card"

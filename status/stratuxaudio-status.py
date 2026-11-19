@@ -11,6 +11,7 @@ page in the Stratux web UI.
   POST /level        {"level_pct": 0-100}: set the dongle's output level
   POST /eq           {"bands_db": [7 x -12..12], "loudness": bool, "preset": str}
   POST /mono         {"mono": bool}: mix down to mono (restarts the AirPlay receiver)
+  POST /output       {"card": id}: play through this sound card (restarts the receiver)
 
 Settings are saved to /boot/firmware/stratuxaudio.json (the Stratux settings
 partition, which stays writable with the overlay on) and applied again at start-up.
@@ -158,6 +159,49 @@ def run(cmd):
 _health = {"at": 0, "data": {}}
 
 
+def list_cards():
+    """Sound cards that can play: [{id, name, usbid, usb, playing}]."""
+    names = {}
+    try:
+        for line in open("/proc/asound/cards"):
+            m = re.match(r"\s*(\d+) \[(\S+)\s*\]: (.*)", line)
+            if m:
+                names[m.group(1)] = m.group(3).split(" - ", 1)[-1].strip()
+    except OSError:
+        pass
+    out = []
+    for c in sorted(glob.glob("/proc/asound/card[0-9]*")):
+        if not glob.glob(c + "/pcm*p"):
+            continue
+        n = c.rsplit("card", 1)[1]
+        try:
+            cid = open(c + "/id").read().strip()
+            usbid = open(c + "/usbid").read().strip() if os.path.exists(c + "/usbid") else ""
+            playing = any("RUNNING" in open(f).read() for f in glob.glob(c + "/pcm*p/sub*/status"))
+        except OSError:
+            continue
+        name = names.get(n, cid)
+        if not usbid and cid == "Headphones":
+            name += " (the Pi's own jack: doesn't play under Stratux)"
+        out.append({"id": cid, "name": name, "usbid": usbid, "usb": bool(usbid), "playing": playing})
+    return out
+
+
+def conf_card():
+    """Card id shairport-sync is set to play through (from output_device)."""
+    try:
+        m = re.search(r'^\s*output_device\s*=\s*"[^"]*CARD=([^,"]+)', open(CONF).read(), re.M)
+    except OSError:
+        return None
+    return m.group(1) if m else None
+
+
+def mixer_control(cid):
+    ctl = run(["amixer", "-c", cid, "scontrols"]).splitlines()
+    m = re.search(r"'(.*)'", ctl[0]) if ctl else None
+    return m.group(1) if m else None
+
+
 def health():
     """Audio-side checks, cached for 3 s."""
     if time.time() - _health["at"] < 3:
@@ -168,30 +212,18 @@ def health():
     m = re.search(r'^\s*name\s*=\s*"([^"]*)"', conf, re.M)
     name = m.group(1) if m else ""
 
+    cards = list_cards()
+    sel = conf_card()
     dongle = None
-    for c in sorted(glob.glob("/proc/asound/card[0-9]*")):
-        if os.path.exists(c + "/usbid"):
-            cid = open(c + "/id").read().strip()
-            n = c.rsplit("card", 1)[1]
-            longname = ""
-            for line in open("/proc/asound/cards"):
-                if line.strip().startswith(n + " ["):
-                    longname = line.split(" - ", 1)[-1].strip()
-            st = ""
-            p = c + "/pcm0p/sub0/status"
-            if os.path.exists(p):
-                st = open(p).read()
+    for c in cards:
+        if c["id"] == sel:
             level = None
-            ctl = run(["amixer", "-c", cid, "scontrols"]).splitlines()
+            ctl = mixer_control(c["id"])
             if ctl:
-                cm = re.search(r"'(.*)'", ctl[0])
-                if cm:
-                    lm = re.search(r"\[(\d+)%\]", run(["amixer", "-c", cid, "sget", cm.group(1)]))
-                    level = int(lm.group(1)) if lm else None
-            dongle = {"id": cid, "name": longname, "usbid": open(c + "/usbid").read().strip(),
-                      "in_use": "RUNNING" in st, "level_pct": level,
-                      "selected": f"CARD={cid}," in device}
-            break
+                lm = re.search(r"\[(\d+)%\]", run(["amixer", "-c", c["id"], "sget", ctl]))
+                level = int(lm.group(1)) if lm else None
+            dongle = {"id": c["id"], "name": c["name"], "usbid": c["usbid"], "usb": c["usb"],
+                      "in_use": c["playing"], "level_pct": level, "selected": True}
 
     ps = run(["ps", "-C", "shairport-sync", "-o", "%cpu=,rss="]).split()
     ver = open("/etc/stratuxaudio-version").read().strip() if os.path.exists("/etc/stratuxaudio-version") else ""
@@ -199,25 +231,24 @@ def health():
         "version": ver,
         "speaker_name": name,
         "output_device": device,
+        "output_card": sel,
+        "cards": cards,
         "shairport": run(["systemctl", "is-active", "shairport-sync"]) or "unknown",
         "avahi": run(["systemctl", "is-active", "avahi-daemon"]) or "unknown",
         "shairport_cpu_pct": float(ps[0]) if len(ps) >= 2 else None,
         "shairport_mem_mb": round(int(ps[1]) / 1024, 1) if len(ps) >= 2 else None,
-        "dongle": dongle,
+        "dongle": dongle,          # the selected output card, if it's plugged in
     }
     _health.update(at=time.time(), data=data)
     return data
 
 
 def dongle_control():
-    """(card id, mixer control) of the USB dongle, or (None, None)."""
-    for c in sorted(glob.glob("/proc/asound/card[0-9]*")):
-        if os.path.exists(c + "/usbid"):
-            cid = open(c + "/id").read().strip()
-            ctl = run(["amixer", "-c", cid, "scontrols"]).splitlines()
-            m = re.search(r"'(.*)'", ctl[0]) if ctl else None
-            return (cid, m.group(1)) if m else (cid, None)
-    return None, None
+    """(card id, mixer control) of the selected output card, or (None, None)."""
+    cid = conf_card()
+    if not cid or cid not in {c["id"] for c in list_cards()}:
+        return None, None
+    return cid, mixer_control(cid)
 
 
 def set_level(pct):
@@ -402,6 +433,10 @@ def keep_settings_applied():
                 last_level = key
         elif not ctl:
             last_level = None   # dongle unplugged: apply again when it's back
+        try:
+            check_output()
+        except Exception as e:
+            print(f"{ts()} output check: {e}", flush=True)
         pid = shairport_pid()
         if pid and pid != "0" and pid != last_pid:
             eq = saved.get("eq") or {}
@@ -448,10 +483,67 @@ def set_mono(mono):
         f.seek(0)
         f.write(text)
         f.truncate()
+    restart_shairport()
+
+
+def restart_shairport():
     r = subprocess.run(["systemctl", "restart", "shairport-sync"], capture_output=True, text=True, timeout=20)
     if r.returncode:
         raise RuntimeError(r.stderr.strip() or "restart failed")
     _health["at"] = 0
+
+
+def set_output(cid):
+    """Point shairport-sync at sound card cid (one line of its config) and restart it."""
+    if cid not in {c["id"] for c in list_cards()}:
+        raise ValueError(f"no sound card {cid!r}")
+    line = f'  output_device = "plughw:CARD={cid},DEV=0";   // set from the Audio page'
+    lines = open(CONF).read().split("\n")
+    for i, l in enumerate(lines):
+        if re.match(r"\s*output_device\s*=", l):
+            lines[i] = line
+            break
+    else:
+        raise RuntimeError(f"no output_device line in {CONF}")
+    with open(CONF, "r+") as f:      # in place: the service may write the file, not /etc
+        f.seek(0)
+        f.write("\n".join(lines))
+        f.truncate()
+    restart_shairport()
+
+
+def check_output():
+    """Keep shairport pointed at a card that's actually there.
+    1. the card chosen on the Audio page, if plugged in (matched by USB id, then name);
+    2. otherwise leave a working setting alone;
+    3. otherwise (the set card is gone) fall back to any USB sound card."""
+    cards = list_cards()
+    by_id = {c["id"]: c for c in cards}
+    cur = conf_card()
+    want = load_saved().get("output") or {}
+    target = None
+    if want:
+        for c in cards:
+            if (want.get("usbid") and c["usbid"] == want["usbid"]) or \
+               (not want.get("usbid") and c["id"] == want.get("id")):
+                target = c["id"]
+                break
+    if target is None:
+        if cur in by_id:
+            return
+        usb = [c for c in cards if c["usb"]]
+        if not usb:
+            return
+        target = usb[0]["id"]
+        why = "set card missing; falling back to"
+    else:
+        why = "restoring saved choice"
+    if target == cur:
+        return
+    if cur in by_id and by_id[cur]["playing"]:
+        return                       # don't cut off music; try again on the next pass
+    set_output(target)
+    print(f"{ts()} output: {why} {target} (was {cur})", flush=True)
 
 
 def keep_mono_applied():
@@ -549,6 +641,21 @@ class Handler(BaseHTTPRequestHandler):
             print(f"{ts()} mono={mono} from {who}", flush=True)
             return self._json(200, {"mono": mono})
 
+        if path == "/output":
+            cid = str(body.get("card", ""))[:40]
+            card = next((c for c in list_cards() if c["id"] == cid), None)
+            if not card:
+                return self._json(400, {"error": f"no sound card {cid!r}"})
+            try:
+                set_output(cid)
+                save_key(output={"id": cid, "usbid": card["usbid"], "name": card["name"]},
+                         output_saved_at=ts())
+            except Exception as e:
+                print(f"{ts()} output switch failed: {e}", flush=True)
+                return self._json(503, {"error": f"couldn't switch: {e}"})
+            print(f"{ts()} output set to {cid} ({card['name']}) from {who}", flush=True)
+            return self._json(200, {"card": cid})
+
         return self._send(404, b"not found", "text/plain")
 
     def do_GET(self):
@@ -581,6 +688,10 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     threading.Thread(target=reader, daemon=True).start()
+    try:
+        check_output()
+    except Exception as e:
+        print(f"{ts()} output check: {e}", flush=True)
     keep_mono_applied()
     threading.Thread(target=keep_settings_applied, daemon=True).start()
     print(f"{ts()} stratuxaudio-status listening on :{PORT}", flush=True)

@@ -10,7 +10,7 @@ of a USB sound dongle on the Pi, into the intercom's music input.
 one CPU core, so the ADS-B decoders always win. Check this on the ground before flying it
 (see *Testing*).
 
-Status: **v1.1.1, tested on a Stratux** (Raspberry Pi 3B+, Stratux v2.0 = v2.0-pre4,
+Status: **v1.2.3, tested on a Stratux** (Raspberry Pi 3B+, Stratux v2.0 = v2.0-pre4,
 Vention USB sound adapter with a C-Media chip, iPhone) on 2026-11-18/19, both ways: over
 SSH, and by uploading the one file through the web page onto a freshly flashed card.
 Reports from other setups (Pi 4, Stratux pre5/pre6) are welcome.
@@ -37,6 +37,10 @@ StratuxAudio adds an **Audio** item to the Stratux web page's menu. It shows:
   the phone's volume.
 - **Audio Status:** AirPlay receiver running, USB dongle found and sending audio, and
   whether the output setting points at the dongle.
+- **Sound output:** which sound card plays the music, if there's more than one. Saved;
+  if it's unplugged, the Stratux falls back to any USB sound card and switches back later.
+- **Sound:** a 7-band equalizer with presets (Rich, Bass boost, Cockpit, Vocal), Loudness,
+  and **Mono** for audio panels with a mono music input.
 - **Output level:** a slider for how hard the dongle drives the audio panel. Set it once
   with the phone at full volume; it's saved and comes back after a reboot, overlay on.
 
@@ -47,11 +51,16 @@ same as the Stratux settings page.
 ## What you need
 
 - A Stratux on a Raspberry Pi 3B+ (a 4 also works; a 5 needs the USB dongle anyway).
-- A **USB sound dongle** (any class-compliant USB audio adapter; no driver needed). The
+- A **USB sound adapter** (any class-compliant USB audio device; no driver needed). The
   Pi's own headphone jack doesn't work under the Stratux image, so this isn't optional.
-  Tested: the **VENTION USB hub with 3.5 mm audio** (3 USB-A ports + mic and headphone
-  jacks, C-Media chip; [Amazon](https://a.co/d/09TilJ1p)). Its spare ports are handy
-  for a USB GPS. The plain $8-class C-Media dongles should work the same way.
+  **Sound quality depends mostly on this part.** Tested:
+  - **VENTION USB hub with 3.5 mm audio** (C-Media chip; [Amazon](https://a.co/d/09TilJ1p)):
+    works, and its spare USB ports are handy for a USB GPS, but it **sounds thin** next to
+    a phone or laptop jack. The cheap C-Media adapters are all similar.
+  - For better sound, use a better adapter, for example Apple's USB-C to 3.5 mm adapter
+    (with a USB-A to USB-C adapter), a Creative Sound Blaster Play! 3/4, or a FiiO KA-series
+    dongle. Plug it into the Pi or into the hub, then pick it under **Sound output** on the
+    Audio page.
 - A cable from the dongle's headphone out to the intercom's music/aux input.
   **Use a ground-loop isolator** in that cable: it stops alternator whine.
 - An iPhone or iPad. This is AirPlay 1 ("classic"), which every iOS version still supports.

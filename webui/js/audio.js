@@ -17,7 +17,7 @@ function AudioCtrl($scope, $http, $interval) {
 	};
 	$scope.allGood = function () {
 		var h = $scope.h;
-		return $scope.reachable && h.shairport == 'active' && h.avahi == 'active' && h.dongle && h.dongle.selected;
+		return $scope.reachable && h.shairport == 'active' && h.avahi == 'active' && !!h.dongle;
 	};
 
 	// Output level slider: follows the box until the user touches it, then sends
@@ -119,11 +119,31 @@ function AudioCtrl($scope, $http, $interval) {
 		}).finally(function () { $scope.mono.busy = false; });
 	};
 
+	// Sound output picker. Switching restarts the AirPlay receiver (about 2 s).
+	$scope.out = { choice: null, busy: false, msg: '', ok: true };
+	$scope.cardLabel = function (c) {
+		return c.name + (c.usb ? ' (USB)' : '') + (c.playing ? ' - playing' : '');
+	};
+	$scope.setOutput = function () {
+		var id = $scope.out.choice;
+		if (!id || id === $scope.h.output_card) return;
+		$scope.out.busy = true;
+		$scope.out.msg = '';
+		$http.post(base + '/output', { card: id }, { timeout: 30000 }).then(function () {
+			$scope.out.ok = true;
+			$scope.out.msg = 'saved; pick the speaker again on the phone if the music stopped';
+		}, function (e) {
+			$scope.out.ok = false;
+			$scope.out.msg = (e.data && e.data.error) || 'could not switch';
+		}).finally(function () { $scope.out.busy = false; });
+	};
+
 	function poll() {
 		$http.get(base + '/status.json', { timeout: 2500 }).then(function (r) {
 			$scope.reachable = true;
 			$scope.np = r.data.now_playing;
 			$scope.h = r.data.health;
+			if (!$scope.out.busy) $scope.out.choice = $scope.h.output_card;
 			var a = r.data.audio;
 			if (a) {
 				if (!$scope.mono.busy) $scope.mono.on = a.mono;
