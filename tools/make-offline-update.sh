@@ -28,9 +28,16 @@ if dpkg-query -W -f='${Status}' shairport-sync 2>/dev/null | grep -q "ok install
   echo "shairport-sync is already installed here; build the bundle on a clean Stratux." >&2
   exit 1
 fi
-if [ "$(date +%Y)" -lt 2025 ]; then
-  d="$(curl -sI https://deb.debian.org/ | tr -d '\r' | sed -n 's/^[Dd]ate: //p')"
-  [ -n "$d" ] && date -s "$d" >/dev/null
+# Stratux sets its clock from GPS; without a fix it can be days off and apt rejects
+# the package lists. Check against a web server over plain HTTP (HTTPS fails while
+# the clock is wrong) and set it if it's more than an hour out.
+d="$( (curl -sI -m 10 http://deb.debian.org/ || true) | tr -d '\r' | sed -n 's/^[Dd]ate: //p')"
+if [ -n "$d" ]; then
+  skew=$(( $(date -d "$d" +%s) - $(date +%s) ))
+  if [ "${skew#-}" -gt 3600 ]; then echo "Setting the clock to $d"; date -s "$d" >/dev/null; fi
+else
+  echo "Couldn't reach deb.debian.org: no internet? Set Stratux Wi-Fi to AP+Client." >&2
+  exit 1
 fi
 
 PKG="$WORK/stratuxaudio"
