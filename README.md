@@ -20,11 +20,12 @@ How Stratux is put together, and why this is built the way it is:
 
 ## What it looks like
 
-The test unit: a stock Stratux with a Vention USB sound adapter on a short cable (green jack
-= audio out to the intercom) and the GPS module moved to an outside USB port.
+The test unit: a stock Stratux with a **Vention USB hub + sound adapter** on its short
+cable. The green jack is the audio out to the intercom, and the USB GPS module is plugged
+into one of the hub's ports, so one Pi USB port gives you both audio and GPS.
 
 <p>
-  <img src="docs/images/stratux-with-dongle-top.jpg" width="320" alt="Stratux with a Vention USB sound adapter on a short cable and a USB GPS module plugged into the side">
+  <img src="docs/images/stratux-with-dongle-top.jpg" width="320" alt="Stratux with a Vention USB hub and sound adapter on a short cable, a USB GPS module plugged into the hub">
   <img src="docs/images/stratux-with-dongle-jacks.jpg" width="320" alt="End view of the Stratux: the sound adapter's mic and headphone jacks, GPS module behind">
 </p>
 
@@ -46,7 +47,11 @@ same as the Stratux settings page.
 ## What you need
 
 - A Stratux on a Raspberry Pi 3B+ (a 4 also works; a 5 needs the USB dongle anyway).
-- A **USB sound dongle** (any class-compliant USB audio adapter; no driver needed).
+- A **USB sound dongle** (any class-compliant USB audio adapter; no driver needed). The
+  Pi's own headphone jack doesn't work under the Stratux image, so this isn't optional.
+  Tested: the **VENTION USB hub with 3.5 mm audio** (3 USB-A ports + mic and headphone
+  jacks, C-Media chip; [Amazon](https://a.co/d/09TilJ1p)). Its spare ports are handy
+  for a USB GPS. The plain $8-class C-Media dongles should work the same way.
 - A cable from the dongle's headphone out to the intercom's music/aux input.
   **Use a ground-loop isolator** in that cable: it stops alternator whine.
 - An iPhone or iPad. This is AirPlay 1 ("classic"), which every iOS version still supports.
