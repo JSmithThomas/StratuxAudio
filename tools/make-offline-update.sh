@@ -13,16 +13,39 @@
 #
 #   sudo ./tools/make-offline-update.sh
 #
+# Or, to ship new StratuxAudio scripts with the packages from an earlier update file
+# (no Stratux, no root, no internet needed; runs on any machine with bash):
+#
+#   ./tools/make-offline-update.sh --debs-from update-stratuxaudio-v1.1.0.sh
+#
 # The file lands in the current folder; copy it off with scp.
 
 set -euo pipefail
-[ "$(id -u)" -eq 0 ] || { echo "run as root"; exit 1; }
+
+DEBS_FROM=""
+if [ "${1:-}" = "--debs-from" ]; then
+  DEBS_FROM="$2"
+  [ -f "$DEBS_FROM" ] || { echo "no such file: $DEBS_FROM"; exit 1; }
+  DEBS_FROM="$(cd "$(dirname "$DEBS_FROM")" && pwd)/$(basename "$DEBS_FROM")"
+fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(sed -n 's/^VERSION="\(.*\)"/\1/p' "$ROOT/install.sh")"
 OUT="$PWD/update-stratuxaudio-v${VERSION}.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+PKG="$WORK/stratuxaudio"
+mkdir -p "$PKG/config"
+
+if [ -n "$DEBS_FROM" ]; then
+  [ "$DEBS_FROM" != "$OUT" ] || { echo "the old and new file have the same name; bump VERSION in install.sh"; exit 1; }
+  OLD="$WORK/old"; mkdir -p "$OLD"
+  sed '1,/^__PAYLOAD_BELOW__$/d' "$DEBS_FROM" | base64 -d | tar xz -C "$OLD"
+  [ -d "$OLD/stratuxaudio/debs" ] || { echo "no packages inside $DEBS_FROM"; exit 1; }
+  mv "$OLD/stratuxaudio/debs" "$PKG/debs"
+  echo "Reusing $(ls -1 "$PKG/debs" | wc -l) packages from $(basename "$DEBS_FROM")"
+else
+[ "$(id -u)" -eq 0 ] || { echo "run as root"; exit 1; }
 
 if dpkg-query -W -f='${Status}' shairport-sync 2>/dev/null | grep -q "ok installed"; then
   echo "shairport-sync is already installed here; build the bundle on a clean Stratux." >&2
@@ -40,13 +63,13 @@ else
   exit 1
 fi
 
-PKG="$WORK/stratuxaudio"
-mkdir -p "$PKG/debs/partial" "$PKG/config"
+mkdir -p "$PKG/debs/partial"
 apt-get update
 # Downloads shairport-sync plus every dependency this image is missing.
 apt-get install -y --download-only --no-install-recommends \
   -o Dir::Cache::archives="$PKG/debs" shairport-sync avahi-daemon alsa-utils avahi-utils
 rm -rf "$PKG/debs/partial" "$PKG/debs/lock"
+fi
 
 cp "$ROOT/install.sh" "$ROOT/check.sh" "$PKG/"
 cp -r "$ROOT/status" "$ROOT/webui" "$PKG/"

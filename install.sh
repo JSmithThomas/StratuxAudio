@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-VERSION="1.1.0"
+VERSION="1.1.1"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG=/var/log/stratuxaudio-install.log
 
@@ -173,9 +173,29 @@ if [ "$BOOT" = yes ]; then
   wants=/etc/systemd/system/multi-user.target.wants
   mkdir -p "$wants"
   for u in shairport-sync avahi-daemon stratuxaudio-status; do
-    unit="$(ls /lib/systemd/system/$u.service /usr/lib/systemd/system/$u.service /etc/systemd/system/$u.service 2>/dev/null | head -1)"
-    [ -n "$unit" ] && ln -sf "$unit" "$wants/$u.service"
+    unit=""
+    for d in /etc/systemd/system /lib/systemd/system /usr/lib/systemd/system; do
+      if [ -f "$d/$u.service" ]; then unit="$d/$u.service"; break; fi
+    done
+    if [ -n "$unit" ]; then
+      ln -sf "$unit" "$wants/$u.service"
+      log "enabled $u"
+    else
+      log "WARNING: no unit file for $u"
+    fi
   done
+
+  # Stratux turned its SD-card protection (the overlay) off to run this update. Newer
+  # Stratux versions turn it back on afterward; v2.0 (pre4) leaves it off. Turn it back
+  # on for the next boot, unless the owner keeps it off on purpose ("Persistent Logging").
+  # Same method Stratux's own updater uses: remove the flag file, don't call overlayctl.
+  if [ "$(findmnt -n -o FSTYPE /)" != overlay ] && [ -e /overlay/disable ]; then
+    if grep -q '"PersistentLogging": *true' /boot/firmware/stratux.conf 2>/dev/null; then
+      log "Persistent Logging is on, so the overlay stays off"
+    else
+      rm -f /overlay/disable && log "SD-card protection (overlay) back on from the next boot"
+    fi
+  fi
   log "done; services start after the reboot"
 else
   systemctl daemon-reload

@@ -10,10 +10,10 @@ of a USB sound dongle on the Pi, into the intercom's music input.
 one CPU core, so the ADS-B decoders always win. Check this on the ground before flying it
 (see *Testing*).
 
-Status: **v1.1.0, tested on a Stratux** (Raspberry Pi 3B+, Stratux v2.0 line, Vention USB
-sound adapter with a C-Media chip, iPhone) on 2026-11-18. The SSH install is tested; the
-one-file web upload (option B) is built but not yet tested end to end. Reports from other
-setups are welcome.
+Status: **v1.1.1, tested on a Stratux** (Raspberry Pi 3B+, Stratux v2.0 = v2.0-pre4,
+Vention USB sound adapter with a C-Media chip, iPhone) on 2026-11-18/19, both ways: over
+SSH, and by uploading the one file through the web page onto a freshly flashed card.
+Reports from other setups (Pi 4, Stratux pre5/pre6) are welcome.
 
 How Stratux is put together, and why this is built the way it is:
 [`docs/stratux-findings.md`](docs/stratux-findings.md).
@@ -76,14 +76,21 @@ and vanish at reboot. It has to be off to install and should be turned back on a
 
 ## Install: option B, one file from your phone (no internet)
 
-1. Once, on a **clean** Stratux with internet, build the update file:
-   `sudo ./tools/make-offline-update.sh` → `update-stratuxaudio-v1.1.0.sh`.
+1. Get the update file, `update-stratuxaudio-v1.1.1.sh`: download it from this repo's
+   **Releases** page, or build it yourself (below).
 2. On each airplane's Stratux: plug in the dongle, open the Stratux web page,
    **Settings > Update**, choose that file, **Install**.
-3. The Stratux reboots, installs, and reboots again (a few minutes). Done.
+3. The Stratux reboots, installs, and reboots again (a few minutes). The **Audio** item
+   appears in the menu, and SD-card protection (the overlay) is back on afterward.
 
-Build the file on the same Stratux version the airplanes run: it bundles only the
-packages that version is missing.
+The file carries shairport-sync and the 22 packages Stratux v2.0 is missing (4.8 MB),
+so the Stratux needs no internet.
+
+**Building it yourself:** on a **clean** Stratux (StratuxAudio not installed) with
+internet, run `sudo ./tools/make-offline-update.sh`. Build it on the same Stratux version
+the airplanes run: it bundles only the packages that version is missing. To ship changed
+scripts with the packages from an earlier file, on any computer with bash:
+`./tools/make-offline-update.sh --debs-from update-stratuxaudio-v1.1.0.sh`.
 
 ## Testing (on the ground, before flight)
 
