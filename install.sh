@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-VERSION="1.2.3"
+VERSION="1.2.4"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG=/var/log/stratuxaudio-install.log
 

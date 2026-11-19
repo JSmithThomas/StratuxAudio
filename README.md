@@ -10,7 +10,7 @@ of a USB sound dongle on the Pi, into the intercom's music input.
 one CPU core, so the ADS-B decoders always win. Check this on the ground before flying it
 (see *Testing*).
 
-Status: **v1.2.3, tested on a Stratux** (Raspberry Pi 3B+, Stratux v2.0 = v2.0-pre4,
+Status: **v1.2.4, tested on a Stratux** (Raspberry Pi 3B+, Stratux v2.0 = v2.0-pre4,
 Vention USB sound adapter with a C-Media chip, iPhone) on 2026-11-18/19, both ways: over
 SSH, and by uploading the one file through the web page onto a freshly flashed card.
 Reports from other setups (Pi 4, Stratux pre5/pre6) are welcome.

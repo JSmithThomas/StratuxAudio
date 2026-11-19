@@ -159,14 +159,21 @@ def run(cmd):
 _health = {"at": 0, "data": {}}
 
 
+# The Pi's built-in audio (headphone jack, HDMI) isn't offered: the jack doesn't play
+# under the Stratux image, and there's no HDMI in an airplane. USB adapters and sound
+# HATs (I2S boards on the Pi's pins) are listed.
+BUILTIN_DRIVERS = ("bcm2835", "vc4-hdmi", "vc4hdmi")
+
+
 def list_cards():
     """Sound cards that can play: [{id, name, usbid, usb, playing}]."""
-    names = {}
+    names, drivers = {}, {}
     try:
         for line in open("/proc/asound/cards"):
             m = re.match(r"\s*(\d+) \[(\S+)\s*\]: (.*)", line)
             if m:
                 names[m.group(1)] = m.group(3).split(" - ", 1)[-1].strip()
+                drivers[m.group(1)] = m.group(3).split(" - ", 1)[0].strip().lower()
     except OSError:
         pass
     out = []
@@ -174,6 +181,8 @@ def list_cards():
         if not glob.glob(c + "/pcm*p"):
             continue
         n = c.rsplit("card", 1)[1]
+        if drivers.get(n, "").startswith(BUILTIN_DRIVERS):
+            continue
         try:
             cid = open(c + "/id").read().strip()
             usbid = open(c + "/usbid").read().strip() if os.path.exists(c + "/usbid") else ""
@@ -181,8 +190,6 @@ def list_cards():
         except OSError:
             continue
         name = names.get(n, cid)
-        if not usbid and cid == "Headphones":
-            name += " (the Pi's own jack: doesn't play under Stratux)"
         out.append({"id": cid, "name": name, "usbid": usbid, "usb": bool(usbid), "playing": playing})
     return out
 
@@ -516,7 +523,8 @@ def check_output():
     """Keep shairport pointed at a card that's actually there.
     1. the card chosen on the Audio page, if plugged in (matched by USB id, then name);
     2. otherwise leave a working setting alone;
-    3. otherwise (the set card is gone) fall back to any USB sound card."""
+    3. otherwise (the set card is gone, or it's the Pi's built-in audio) fall back to
+       any USB sound card."""
     cards = list_cards()
     by_id = {c["id"]: c for c in cards}
     cur = conf_card()
