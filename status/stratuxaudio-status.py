@@ -306,6 +306,9 @@ EQ_PRESETS = {
     "Bass boost": [7, 4, 1, 0, 0, 0, 0],
     "Cockpit":    [-4, -1, 0, 2, 4, 3, 1],    # less engine rumble, clearer voices and detail
     "Vocal":      [-2, -1, 1, 3, 3, 1, 0],
+    # Tuned by ear on a cheap C-Media USB adapter (Vention hub), output 100 %, phone ~95 %,
+    # Loudness on: the strong smile those adapters need to stop sounding thin.
+    "C-Media boost": [12, 8, 4.5, 1.5, 4, 8.5, 12],
 }
 IR_LEN = 4096          # 93 ms at 44.1 kHz: long enough for the 60 Hz shelf to settle
 FS = 44100.0

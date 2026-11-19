@@ -10,7 +10,7 @@ of a USB sound dongle on the Pi, into the intercom's music input.
 one CPU core, so the ADS-B decoders always win. Check this on the ground before flying it
 (see *Testing*).
 
-Status: **v1.2.4, tested on a Stratux** (Raspberry Pi 3 Model B, Stratux v2.0 = v2.0-pre4,
+Status: **v1.2.5, tested on a Stratux** (Raspberry Pi 3 Model B, Stratux v2.0 = v2.0-pre4,
 Vention USB sound adapter with a C-Media chip, iPhone) on 2026-11-18/19, both ways: over
 SSH, and by uploading the one file through the web page onto a freshly flashed card.
 Reports from other setups (Pi 4, Stratux pre5/pre6) are welcome.
@@ -55,9 +55,11 @@ same as the Stratux settings page.
   Pi's own headphone jack doesn't work under the Stratux image, so this isn't optional.
   **Sound quality depends mostly on this part.** Tested:
   - **VENTION USB hub with 3.5 mm audio** (C-Media chip; [Amazon](https://a.co/d/09TilJ1p)):
-    works, and its spare USB ports are handy for a USB GPS, but it **sounds thin** next to
-    a phone or laptop jack. The cheap C-Media adapters are all similar.
-  - For better sound, use a better adapter, for example Apple's USB-C to 3.5 mm adapter
+    its spare USB ports are handy for a USB GPS. Flat, it **sounds thin** next to a phone
+    or laptop jack (the cheap C-Media adapters are all similar), but it **sounds good with
+    the "C-Media boost" EQ preset, Loudness on, output level 100 % and the phone near full
+    volume**. That preset was tuned by ear on this adapter.
+  - For better sound without the boost, use a better adapter, for example Apple's USB-C to 3.5 mm adapter
     (with a USB-A to USB-C adapter), a Creative Sound Blaster Play! 3/4, or a FiiO KA-series
     dongle. Plug it into the Pi or into the hub, then pick it under **Sound output** on the
     Audio page.
